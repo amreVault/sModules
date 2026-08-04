@@ -63,4 +63,4 @@
 
 ## Нашёл баг? 
 
-`@sisitampon`
+`Пиши в личку - @sisitampon`
