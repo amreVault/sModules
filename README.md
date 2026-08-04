@@ -1,4 +1,4 @@
-# smodules
+# sModules
 
 Модули для юзербота [Heroku](https://github.com/coddrago/Heroku) (форк Hikka).
 
@@ -60,3 +60,7 @@
 ## Разработчик
 
 `@smodules / @sisitampon`
+
+## Нашёл баг? 
+
+`@sisitampon`
