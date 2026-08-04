@@ -7,14 +7,13 @@
 Установить модуль можно прямо в Telegram, указав ссылку на **raw**-файл из этого репозитория:
 
 ```
-.dlmod https://raw.githubusercontent.com/<юзернейм>/<репозиторий>/main/modules/sautoreact.py
+.dlm https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreact.py
 ```
 
 ```
-.dlmod https://raw.githubusercontent.com/<юзернейм>/<репозиторий>/main/modules/sgetid.py
+.dlm https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sgetid.py
 ```
 
-Замени `<юзернейм>/<репозиторий>` на свои — ссылку легко получить, открыв файл на GitHub и нажав **Raw**.
 
 ---
 
@@ -60,4 +59,4 @@
 
 ## Разработчик
 
-`@smodules`
+`@smodules / @sisitampon`
