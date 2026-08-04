@@ -7,7 +7,7 @@
 Установить модуль можно прямо в Telegram, указав ссылку на **raw**-файл из этого репозитория:
 
 ```
-Пример:
+# Пример:
 .dlm https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreact.py
 ```
 
