@@ -3,14 +3,8 @@
 
 import base64
 
-from herokutl.types import (
-    Message,
-    MessageActionChatAddUser,
-    MessageActionChatJoinedByLink,
-    MessageActionChatJoinedByRequest,
-    InputPhoto,
-    InputDocument,
-)
+from herokutl.types import Message, InputPhoto, InputDocument
+from herokutl import events
 
 from .. import loader, utils
 
@@ -43,6 +37,8 @@ class sWelcomeMod(loader.Module):
         self._client = client
         self._db = db
         self._chats = self._db.get(self.strings["name"], self._db_key, {})
+
+        client.add_event_handler(self._on_join, events.ChatAction)
 
     def _save(self):
         self._db.set(self.strings["name"], self._db_key, self._chats)
@@ -108,28 +104,20 @@ class sWelcomeMod(loader.Module):
         self._save()
         await utils.answer(message, self.strings["off"])
 
-    @loader.watcher()
-    async def watcher(self, message: Message):
-        if message.is_private or not message.action:
+    async def _on_join(self, event):
+        if not (event.user_joined or event.user_added or getattr(event, "user_joined_by_request", False)):
             return
 
-        chat_id = str(message.chat_id)
+        chat_id = str(event.chat_id)
         data = self._chats.get(chat_id)
         if not data:
             return
 
-        action = message.action
-        user_ids = []
-
-        if isinstance(action, MessageActionChatAddUser):
-            user_ids = list(action.users)
-        elif isinstance(action, (MessageActionChatJoinedByLink, MessageActionChatJoinedByRequest)):
-            user_ids = [message.sender_id]
-
+        user_ids = event.user_ids if event.user_ids else ([event.user_id] if event.user_id else [])
         if not user_ids:
             return
 
-        chat = await message.get_chat()
+        chat = await event.get_chat()
 
         for uid in user_ids:
             try:
@@ -147,8 +135,8 @@ class sWelcomeMod(loader.Module):
             try:
                 if data.get("media"):
                     file = self._build_input_media(data["media"])
-                    await self._client.send_file(message.chat_id, file=file, caption=text, parse_mode="html")
+                    await self._client.send_file(event.chat_id, file=file, caption=text, parse_mode="html")
                 else:
-                    await self._client.send_message(message.chat_id, text, parse_mode="html")
+                    await self._client.send_message(event.chat_id, text, parse_mode="html")
             except Exception:
                 pass

@@ -43,14 +43,29 @@ class sWatcherLogMod(loader.Module):
         self._target = self._db.get(self.strings["name"], self._target_key, "me")
 
         client.add_event_handler(self._on_delete, events.MessageDeleted)
+        client.add_event_handler(self._on_edit, events.MessageEdited)
+
+    async def _send_log(self, text: str):
+        try:
+            await self._client.send_message(self._target, text, parse_mode="html")
+        except Exception:
+            pass
 
     async def _on_delete(self, event):
         if not self._enabled:
             return
 
         for msg_id in event.deleted_ids:
-            key = (event.chat_id, msg_id)
-            cached = self._cache.pop(key, None)
+            cached = None
+
+            if event.chat_id is not None:
+                cached = self._cache.pop((event.chat_id, msg_id), None)
+            else:
+                for key in list(self._cache.keys()):
+                    if key[1] == msg_id:
+                        cached = self._cache.pop(key)
+                        break
+
             if not cached:
                 continue
 
@@ -61,11 +76,32 @@ class sWatcherLogMod(loader.Module):
                 )
             )
 
-    async def _send_log(self, text: str):
-        try:
-            await self._client.send_message(self._target, text, parse_mode="html")
-        except Exception:
-            pass
+    async def _on_edit(self, event):
+        message = event.message
+        chat = await message.get_chat()
+        sender = await message.get_sender()
+
+        sender_name = "—"
+        if sender:
+            sender_name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "—"
+
+        chat_title = getattr(chat, "title", "личка") if chat else "личка"
+        key = (message.chat_id, message.id)
+        old_entry = self._cache.get(key)
+
+        new_text = message.raw_text or ""
+
+        if self._enabled and old_entry is not None and old_entry.get("text", "") != new_text:
+            await self._send_log(
+                self.strings["edited"].format(
+                    chat_title,
+                    sender_name,
+                    old_entry.get("text") or "<i>пусто</i>",
+                    new_text or "<i>пусто</i>",
+                )
+            )
+
+        self._cache[key] = {"text": new_text, "sender": sender_name, "chat_title": chat_title}
 
     @loader.command(ru_doc="включить/выключить логирование")
     async def swltoggle(self, message: Message):
@@ -89,27 +125,16 @@ class sWatcherLogMod(loader.Module):
         chat = await message.get_chat()
         sender = await message.get_sender()
 
-        entry = self._cache.get((message.chat_id, message.id), {})
-        old_text = entry.get("text")
-
         sender_name = "—"
         if sender:
             sender_name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "—"
 
-        if self._enabled and old_text is not None and old_text != (message.text or ""):
-            await self._send_log(
-                self.strings["edited"].format(
-                    getattr(chat, "title", "личка"),
-                    sender_name,
-                    old_text or "<i>пусто</i>",
-                    message.text or "<i>пусто</i>",
-                )
-            )
+        chat_title = getattr(chat, "title", "личка") if chat else "личка"
 
         self._cache[(message.chat_id, message.id)] = {
-            "text": message.text or "",
+            "text": message.raw_text or "",
             "sender": sender_name,
-            "chat_title": getattr(chat, "title", "личка"),
+            "chat_title": chat_title,
         }
 
         if len(self._cache) > 5000:

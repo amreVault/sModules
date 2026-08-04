@@ -33,29 +33,40 @@ class sTranslateMod(loader.Module):
             await utils.answer(message, self.strings["no_reply"])
             return
 
-        if not reply.text:
+        if not reply.raw_text:
             await utils.answer(message, self.strings["no_text"])
             return
 
         target = (utils.get_args_raw(message) or "ru").strip()
 
         import aiohttp
+        import json
 
-        params = {"q": reply.text, "langpair": f"auto|{target}"}
+        params = {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": target,
+            "dt": "t",
+            "q": reply.raw_text,
+        }
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    "https://api.mymemory.translated.net/get", params=params, timeout=15
+                    "https://translate.googleapis.com/translate_a/single",
+                    params=params,
+                    timeout=15,
                 ) as resp:
-                    data = await resp.json()
+                    raw = await resp.text()
 
-            translated = data["responseData"]["translatedText"]
+            data = json.loads(raw)
+            translated = "".join(segment[0] for segment in data[0] if segment[0])
+            source_lang = data[2] if len(data) > 2 else "auto"
         except Exception:
             await utils.answer(message, self.strings["error"])
             return
 
         await utils.answer(
             message,
-            self.strings["result"].format("auto", target, translated),
+            self.strings["result"].format(source_lang, target, translated),
         )

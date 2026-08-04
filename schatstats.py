@@ -10,6 +10,19 @@ from .. import loader, utils
 DAY = 86400
 WEEK = DAY * 7
 
+RANK_EMOJI = [
+    "6028226658543082010",
+    "5988023995125993550",
+    "5874960879434338403",
+    "5931415565955503486",
+    "5994453058656931434",
+    "5992199545151295755",
+    "5877219383691972108",
+    "5875019892284985369",
+    "5877301185639091664",
+    "5899757765743615694",
+]
+
 
 @loader.tds
 class sChatStatsMod(loader.Module):
@@ -21,7 +34,7 @@ class sChatStatsMod(loader.Module):
         "empty": "<emoji document_id=5985346521103604145>🚫</emoji> <b>Пока нет статистики по этому чату</b>",
         "header_day": "<emoji document_id=5874960879434338403>🔎</emoji> <b>Топ за 24 часа:</b>\n\n",
         "header_week": "<emoji document_id=5874960879434338403>🔎</emoji> <b>Топ за неделю:</b>\n\n",
-        "item": "<emoji document_id=5879841310902324730>▪️</emoji> <b>{}.</b> {} — <code>{}</code>\n",
+        "item": "<emoji document_id={}>▪️</emoji> <b>{}.</b> {} — <code>{}</code>\n",
     }
 
     strings_ru = strings
@@ -68,7 +81,8 @@ class sChatStatsMod(loader.Module):
                 display = self._display(user)
             except Exception:
                 display = str(uid)
-            text += self.strings["item"].format(i, display, count)
+            icon = RANK_EMOJI[(i - 1) % len(RANK_EMOJI)]
+            text += self.strings["item"].format(icon, i, display, count)
 
         await utils.answer(message, text)
 
@@ -85,6 +99,10 @@ class sChatStatsMod(loader.Module):
     @loader.watcher()
     async def watcher(self, message: Message):
         if message.is_private or not message.sender_id or message.action:
+            return
+
+        sender = await message.get_sender()
+        if sender and getattr(sender, "bot", False):
             return
 
         chat_key = str(message.chat_id)

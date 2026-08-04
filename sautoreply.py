@@ -1,8 +1,6 @@
 # meta developer: @smodules
 # meta name: sAutoReply
 
-import time
-
 from herokutl.types import Message
 
 from .. import loader, utils
@@ -34,7 +32,6 @@ class sAutoReplyMod(loader.Module):
     def __init__(self):
         self._db_key = "sAutoReply.keywords"
         self._state_key = "sAutoReply.enabled"
-        self._cooldowns = {}
 
     async def client_ready(self, client, db):
         self._client = client
@@ -98,7 +95,9 @@ class sAutoReplyMod(loader.Module):
 
     @loader.watcher()
     async def watcher(self, message: Message):
-        if not self._enabled or not message.is_private or message.out:
+        if not self._enabled or message.out:
+            return
+        if not (message.is_private or message.mentioned):
             return
         if not message.text or not self._keywords:
             return
@@ -106,10 +105,6 @@ class sAutoReplyMod(loader.Module):
         text_lower = message.text.lower()
         for key, reply in self._keywords.items():
             if key in text_lower:
-                last = self._cooldowns.get(message.sender_id, 0)
-                if time.time() - last < 60:
-                    return
-                self._cooldowns[message.sender_id] = time.time()
                 try:
                     await message.reply(reply)
                 except Exception:

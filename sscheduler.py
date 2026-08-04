@@ -8,7 +8,18 @@ from herokutl.types import Message
 
 from .. import loader, utils
 
-UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+UNIT_MAP = {
+    "d": "days", "day": "days", "days": "days",
+    "д": "days", "дн": "days", "день": "days", "дня": "days", "дней": "days",
+    "h": "hours", "hr": "hours", "hour": "hours", "hours": "hours",
+    "ч": "hours", "час": "hours", "часа": "hours", "часов": "hours",
+    "m": "minutes", "min": "minutes", "mins": "minutes", "minute": "minutes", "minutes": "minutes",
+    "м": "minutes", "мин": "minutes", "минута": "minutes", "минуты": "minutes", "минут": "minutes",
+    "s": "seconds", "sec": "seconds", "secs": "seconds", "second": "seconds", "seconds": "seconds",
+    "с": "seconds", "сек": "seconds", "секунда": "seconds", "секунды": "seconds", "секунд": "seconds",
+}
+
+TOKEN_RE = re.compile(r"(\d+)\s*([a-zA-Zа-яёА-ЯЁ]+)")
 
 
 @loader.tds
@@ -34,24 +45,46 @@ class sSchedulerMod(loader.Module):
         self._client = client
 
     @staticmethod
-    def _parse_time(raw: str):
-        m = re.fullmatch(r"(\d+)([mhd])", raw.strip())
-        if m:
-            amount, unit = m.groups()
-            delta = timedelta(**{UNITS[unit]: int(amount)})
-            return datetime.utcnow() + delta
+    def _parse_relative(raw: str):
+        tokens = TOKEN_RE.findall(raw.strip().lower())
+        if not tokens:
+            return None
 
-        for fmt in ("%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M", "%H:%M"):
+        kwargs = {}
+        matched_len = 0
+
+        for amount, unit in tokens:
+            unit_key = UNIT_MAP.get(unit)
+            if not unit_key:
+                return None
+            kwargs[unit_key] = kwargs.get(unit_key, 0) + int(amount)
+            matched_len += len(amount) + len(unit)
+
+        cleaned = re.sub(r"\s+", "", raw.strip().lower())
+        if len(cleaned) != matched_len:
+            return None
+
+        return datetime.utcnow() + timedelta(**kwargs)
+
+    @classmethod
+    def _parse_time(cls, raw: str):
+        relative = cls._parse_relative(raw)
+        if relative:
+            return relative
+
+        for fmt in ("%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M", "%Y-%m-%d", "%d.%m.%Y", "%H:%M"):
             try:
                 parsed = datetime.strptime(raw.strip(), fmt)
-                if fmt == "%H:%M":
-                    now = datetime.utcnow()
-                    parsed = now.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
-                    if parsed <= now:
-                        parsed += timedelta(days=1)
-                return parsed
             except ValueError:
                 continue
+
+            if fmt == "%H:%M":
+                now = datetime.utcnow()
+                parsed = now.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
+                if parsed <= now:
+                    parsed += timedelta(days=1)
+
+            return parsed
 
         return None
 

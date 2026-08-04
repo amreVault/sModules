@@ -33,6 +33,7 @@ class sAFKMod(loader.Module):
         self._reason = ""
         self._since = 0
         self._cooldowns = {}
+        self._sending = False
 
     async def client_ready(self, client, db):
         self._client = client
@@ -59,7 +60,7 @@ class sAFKMod(loader.Module):
 
     @loader.watcher(outgoing=True)
     async def outgoing_watcher(self, message: Message):
-        if self._enabled and not getattr(message, "_afk_reply", False):
+        if self._enabled and not self._sending:
             self._enabled = False
             try:
                 await message.respond(self.strings["off"])
@@ -84,8 +85,10 @@ class sAFKMod(loader.Module):
         self._cooldowns[message.sender_id] = time.time()
         elapsed = self._humanize(time.time() - self._since)
 
+        self._sending = True
         try:
-            reply = await message.reply(self.strings["reply"].format(self._reason, elapsed))
-            reply._afk_reply = True
+            await message.reply(self.strings["reply"].format(self._reason, elapsed))
         except Exception:
             pass
+        finally:
+            self._sending = False
