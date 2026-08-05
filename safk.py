@@ -34,6 +34,7 @@ class sAFKMod(loader.Module):
         self._since = 0
         self._cooldowns = {}
         self._sending = False
+        self._enabled_at = 0
 
     async def client_ready(self, client, db):
         self._client = client
@@ -54,18 +55,23 @@ class sAFKMod(loader.Module):
         self._reason = utils.get_args_raw(message) or "без причины"
         self._enabled = True
         self._since = time.time()
+        self._enabled_at = time.time()
         self._cooldowns.clear()
 
         await utils.answer(message, self.strings["on"].format(self._reason))
 
     @loader.watcher(outgoing=True)
     async def outgoing_watcher(self, message: Message):
-        if self._enabled and not self._sending:
-            self._enabled = False
-            try:
-                await message.respond(self.strings["off"])
-            except Exception:
-                pass
+        if not self._enabled or self._sending:
+            return
+        if time.time() - self._enabled_at < 3:
+            return
+
+        self._enabled = False
+        try:
+            await message.respond(self.strings["off"])
+        except Exception:
+            pass
 
     @loader.watcher()
     async def watcher(self, message: Message):

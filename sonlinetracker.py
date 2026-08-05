@@ -40,9 +40,13 @@ class sOnlineTrackerMod(loader.Module):
         self._client = client
         self._db = db
         self._users = self._db.get(self.strings["name"], self._db_key, {})
-        for data in self._users.values():
-            data.setdefault("online", None)
-            data.setdefault("last_seen", None)
+        for uid, data in list(self._users.items()):
+            if not isinstance(data, dict):
+                self._users[uid] = {"display": data, "online": None, "last_seen": None}
+            else:
+                data.setdefault("online", None)
+                data.setdefault("last_seen", None)
+        self._save()
         asyncio.ensure_future(self._loop())
 
     def _save(self):

@@ -2,7 +2,7 @@
 # meta name: sScheduler
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from herokutl.types import Message
 
@@ -64,7 +64,7 @@ class sSchedulerMod(loader.Module):
         if len(cleaned) != matched_len:
             return None
 
-        return datetime.utcnow() + timedelta(**kwargs)
+        return datetime.now(timezone.utc) + timedelta(**kwargs)
 
     @classmethod
     def _parse_time(cls, raw: str):
@@ -78,8 +78,10 @@ class sSchedulerMod(loader.Module):
             except ValueError:
                 continue
 
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
             if fmt == "%H:%M":
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 parsed = now.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
                 if parsed <= now:
                     parsed += timedelta(days=1)

@@ -5,7 +5,9 @@ import io
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from herokutl.types import Message
+from herokutl.types import Message, ReactionEmoji, ReactionCustomEmoji
+from herokutl.tl.functions.messages import GetCustomEmojiDocumentsRequest
+from herokutl.tl.types import DocumentAttributeCustomEmoji
 
 from .. import loader, utils
 
@@ -16,7 +18,7 @@ class sQuoteMod(loader.Module):
 
     strings = {
         "name": "sQuote",
-        "no_reply": "<emoji document_id=5985346521103604145>🚫</emoji> <b>Ответь на текстовое сообщение</b>",
+        "no_reply": "<emoji document_id=5985346521103604145>🚫</emoji> <b>Ответь на сообщение</b>",
         "empty_text": "<emoji document_id=5985346521103604145>🚫</emoji> <b>В сообщении нет текста</b>",
     }
 
@@ -64,41 +66,81 @@ class sQuoteMod(loader.Module):
 
         return lines
 
-    async def _render(self, name: str, text: str, avatar_bytes):
-        width = 1000
-        padding = 70
-        avatar_size = 120
+    async def _resolve_reaction_glyphs(self, reactions):
+        if not reactions or not reactions.results:
+            return []
 
-        font = self._load_font(40)
-        name_font = self._load_font(32, bold=True)
-        quote_font = self._load_font(90, bold=True)
+        custom_ids = [
+            r.reaction.document_id
+            for r in reactions.results
+            if isinstance(r.reaction, ReactionCustomEmoji)
+        ]
+        alt_map = {}
+
+        if custom_ids:
+            try:
+                docs = await self._client(GetCustomEmojiDocumentsRequest(document_id=custom_ids))
+                for doc in docs:
+                    for attr in doc.attributes:
+                        if isinstance(attr, DocumentAttributeCustomEmoji):
+                            alt_map[doc.id] = attr.alt
+            except Exception:
+                pass
+
+        glyphs = []
+        for r in reactions.results:
+            if isinstance(r.reaction, ReactionEmoji):
+                glyphs.append((r.reaction.emoticon, r.count))
+            elif isinstance(r.reaction, ReactionCustomEmoji):
+                glyphs.append((alt_map.get(r.reaction.document_id, "❤"), r.count))
+
+        return glyphs
+
+    async def _render(self, name, text, avatar_bytes, reply_label, reaction_glyphs, sticker_bytes=None):
+        width = 900
+        padding = 50
+        avatar_size = 96
+        bubble_x = padding * 2 + avatar_size
+        bubble_max_width = width - bubble_x - padding
+
+        name_font = self._load_font(30, bold=True)
+        text_font = self._load_font(34)
+        reply_font = self._load_font(24)
+        reaction_font = self._load_font(26)
 
         dummy = Image.new("RGB", (10, 10))
         draw = ImageDraw.Draw(dummy)
 
-        text_area_width = width - padding * 3 - avatar_size
-        lines = self._wrap_text(draw, text, font, text_area_width)
+        inner_padding = 26
+        text_area_width = bubble_max_width - inner_padding * 2
 
-        line_height = font.size + 16
-        text_height = line_height * len(lines)
-        content_height = max(text_height, avatar_size) + name_font.size + 40
-        height = int(content_height + padding * 2)
+        lines = []
+        if not sticker_bytes:
+            lines = self._wrap_text(draw, text, text_font, text_area_width)
 
-        bg_top = (30, 32, 40)
-        bg_bottom = (18, 19, 24)
-        img = Image.new("RGB", (width, height), bg_bottom)
-        for y in range(height):
-            ratio = y / max(height - 1, 1)
-            r = int(bg_top[0] * (1 - ratio) + bg_bottom[0] * ratio)
-            g = int(bg_top[1] * (1 - ratio) + bg_bottom[1] * ratio)
-            b = int(bg_top[2] * (1 - ratio) + bg_bottom[2] * ratio)
-            ImageDraw.Draw(img).line([(0, y), (width, y)], fill=(r, g, b))
+        line_height = text_font.size + 14
+        text_height = line_height * len(lines) if lines else 0
 
+        reply_block_height = (reply_font.size * 2 + 20) if reply_label else 0
+        reactions_height = (reaction_font.size + 26) if reaction_glyphs else 0
+
+        sticker_size = 260 if sticker_bytes else 0
+
+        bubble_height = (
+            inner_padding * 2
+            + name_font.size + 14
+            + reply_block_height
+            + (sticker_size if sticker_bytes else text_height)
+            + reactions_height
+        )
+
+        height = int(max(bubble_height + padding * 2, avatar_size + padding * 2))
+        bubble_width = int(bubble_max_width)
+
+        img = Image.new("RGB", (width, height), (14, 15, 18))
         draw = ImageDraw.Draw(img)
 
-        draw.rectangle([0, 0, 8, height], fill=(120, 170, 255))
-
-        avatar_x, avatar_y = padding, padding
+        avatar_x, avatar_y = padding, height - avatar_size - padding
         if avatar_bytes:
             try:
                 avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGB")
@@ -123,19 +165,46 @@ class sQuoteMod(loader.Module):
                 fill=(230, 230, 230),
             )
 
-        text_x = padding * 2 + avatar_size
-        draw.text(
-            (text_x - 46, padding - 30),
-            "\u201c",
-            font=quote_font,
-            fill=(120, 170, 255),
-        )
-        draw.text((text_x, padding), name, font=name_font, fill=(120, 170, 255))
+        bubble_top = (height - int(bubble_height)) // 2
+        bubble_top = max(bubble_top, padding // 2)
+        bubble_box = [bubble_x, bubble_top, bubble_x + bubble_width, bubble_top + int(bubble_height)]
 
-        y = padding + name_font.size + 26
-        for line in lines:
-            draw.text((text_x, y), line, font=font, fill=(235, 235, 235))
-            y += line_height
+        draw.rounded_rectangle(bubble_box, radius=26, fill=(35, 37, 43))
+
+        cursor_y = bubble_top + inner_padding
+        cursor_x = bubble_x + inner_padding
+
+        draw.text((cursor_x, cursor_y), name, font=name_font, fill=(120, 170, 255))
+        cursor_y += name_font.size + 14
+
+        if reply_label:
+            bar_h = reply_font.size * 2 + 6
+            draw.rectangle([cursor_x, cursor_y, cursor_x + 4, cursor_y + bar_h], fill=(120, 170, 255))
+            draw.text((cursor_x + 16, cursor_y), reply_label, font=reply_font, fill=(160, 190, 255))
+            cursor_y += reply_block_height
+
+        if sticker_bytes:
+            try:
+                sticker = Image.open(io.BytesIO(sticker_bytes)).convert("RGBA")
+                sticker.thumbnail((sticker_size, sticker_size))
+                img.paste(sticker, (cursor_x, int(cursor_y)), sticker)
+            except Exception:
+                pass
+            cursor_y += sticker_size
+        else:
+            for line in lines:
+                draw.text((cursor_x, cursor_y), line, font=text_font, fill=(235, 235, 235))
+                cursor_y += line_height
+
+        if reaction_glyphs:
+            rx = cursor_x
+            ry = cursor_y + 10
+            for emoji, count in reaction_glyphs:
+                label = f"{emoji} {count}"
+                w = draw.textlength(label, font=reaction_font) + 24
+                draw.rounded_rectangle([rx, ry, rx + w, ry + reaction_font.size + 16], radius=14, fill=(50, 53, 62))
+                draw.text((rx + 12, ry + 6), label, font=reaction_font, fill=(230, 230, 230))
+                rx += w + 10
 
         buf = io.BytesIO()
         buf.name = "quote.png"
@@ -151,8 +220,10 @@ class sQuoteMod(loader.Module):
             await utils.answer(message, self.strings["no_reply"])
             return
 
-        text = reply.raw_text
-        if not text:
+        text = reply.raw_text or ""
+        is_sticker = bool(reply.sticker)
+
+        if not text and not is_sticker:
             await utils.answer(message, self.strings["empty_text"])
             return
 
@@ -167,7 +238,37 @@ class sQuoteMod(loader.Module):
         except Exception:
             pass
 
-        buf = await self._render(name, text, avatar_bytes)
+        reply_label = None
+        if reply.reply_to_msg_id:
+            try:
+                orig = await reply.get_reply_message()
+                if orig:
+                    orig_sender = await orig.get_sender()
+                    orig_name = "—"
+                    if orig_sender:
+                        orig_name = " ".join(
+                            filter(None, [orig_sender.first_name, getattr(orig_sender, "last_name", None)])
+                        ).strip()
+                    reply_label = f"ответ на сообщение {orig_name}"
+            except Exception:
+                pass
+
+        reaction_glyphs = await self._resolve_reaction_glyphs(reply.reactions)
+
+        sticker_bytes = None
+        if is_sticker:
+            try:
+                if reply.document.mime_type == "image/webp":
+                    sticker_bytes = await self._client.download_media(reply, file=bytes)
+            except Exception:
+                sticker_bytes = None
+
+            if sticker_bytes is None:
+                await message.delete()
+                await self._client.send_file(message.chat_id, reply.media, reply_to=reply.id)
+                return
+
+        buf = await self._render(name, text, avatar_bytes, reply_label, reaction_glyphs, sticker_bytes)
 
         await message.delete()
         await self._client.send_file(message.chat_id, buf, reply_to=reply.id)
