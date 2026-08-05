@@ -1,6 +1,8 @@
 # meta developer: @smodules
 # meta name: sAutoReply
 
+import re
+
 from herokutl.types import Message
 
 from .. import loader, utils
@@ -8,7 +10,7 @@ from .. import loader, utils
 
 @loader.tds
 class sAutoReplyMod(loader.Module):
-    """Автоответчик по триггерам"""
+    """Автоответчик в личку по ключевым словам, пока ты офлайн"""
 
     strings = {
         "name": "sAutoReply",
@@ -104,7 +106,7 @@ class sAutoReplyMod(loader.Module):
 
         text_lower = message.text.lower()
         for key, reply in self._keywords.items():
-            if key in text_lower:
+            if re.search(rf"\b{re.escape(key)}\b", text_lower):
                 try:
                     await message.reply(reply)
                 except Exception:
