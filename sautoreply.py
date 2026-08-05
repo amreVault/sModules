@@ -8,7 +8,7 @@ from .. import loader, utils
 
 @loader.tds
 class sAutoReplyMod(loader.Module):
-    """Автоответчик в личку по ключевым словам, пока ты офлайн"""
+    """Автоответчик по триггерам"""
 
     strings = {
         "name": "sAutoReply",
