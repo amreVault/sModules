@@ -113,15 +113,21 @@ class sGetIDMod(loader.Module):
         chunk = utf16[offset * 2:(offset + length) * 2]
         return chunk.decode("utf-16-le")
 
-    @loader.command(ru_doc="вставь premium emoji рядом с командой - покажет его id")
+    @loader.command(ru_doc="вставь premium emoji рядом с командой или ответь на сообщение с ним - покажет id")
     async def semojiid(self, message: Message):
-        """<premium emoji> - get a custom emoji's document id"""
-        if not message.entities:
+        """<premium emoji> or reply - get a custom emoji's document id"""
+        target = message
+        if not (message.entities and any(isinstance(e, MessageEntityCustomEmoji) for e in message.entities)):
+            reply = await message.get_reply_message()
+            if reply and reply.entities:
+                target = reply
+
+        if not target.entities:
             await utils.answer(message, self.strings["no_emoji"])
             return
 
-        raw = message.raw_text or ""
-        found = [e for e in message.entities if isinstance(e, MessageEntityCustomEmoji)]
+        raw = target.raw_text or ""
+        found = [e for e in target.entities if isinstance(e, MessageEntityCustomEmoji)]
 
         if not found:
             await utils.answer(message, self.strings["no_emoji"])

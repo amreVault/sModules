@@ -19,10 +19,12 @@ class sAFKMod(loader.Module):
             "<emoji document_id=5879841310902324730>▪️</emoji> <b>Причина:</b> {}"
         ),
         "off": "<emoji document_id=5879896690210639947>🗑</emoji> <b>AFK выключен</b>",
+        "not_enabled": "<emoji document_id=5985346521103604145>🚫</emoji> <b>AFK и так выключен</b>",
         "reply": (
             "<emoji document_id=5877260593903177342>⚙️</emoji> <b>Я сейчас AFK</b>\n"
             "<emoji document_id=5879841310902324730>▪️</emoji> <b>Причина:</b> {}\n"
-            "<emoji document_id=5874960879434338403>▪️</emoji> <b>Уже:</b> {}"
+            "<emoji document_id=5874960879434338403>▪️</emoji> <b>Уже:</b> {}\n\n"
+            "<i>Могу отвечать с задержкой</i>"
         ),
     }
 
@@ -33,8 +35,6 @@ class sAFKMod(loader.Module):
         self._reason = ""
         self._since = 0
         self._cooldowns = {}
-        self._sending = False
-        self._enabled_at = 0
 
     async def client_ready(self, client, db):
         self._client = client
@@ -55,23 +55,19 @@ class sAFKMod(loader.Module):
         self._reason = utils.get_args_raw(message) or "без причины"
         self._enabled = True
         self._since = time.time()
-        self._enabled_at = time.time()
         self._cooldowns.clear()
 
         await utils.answer(message, self.strings["on"].format(self._reason))
 
-    @loader.watcher(outgoing=True)
-    async def outgoing_watcher(self, message: Message):
-        if not self._enabled or self._sending:
-            return
-        if time.time() - self._enabled_at < 3:
+    @loader.command(ru_doc="выключить AFK")
+    async def afkoff(self, message: Message):
+        """disable afk"""
+        if not self._enabled:
+            await utils.answer(message, self.strings["not_enabled"])
             return
 
         self._enabled = False
-        try:
-            await message.respond(self.strings["off"])
-        except Exception:
-            pass
+        await utils.answer(message, self.strings["off"])
 
     @loader.watcher()
     async def watcher(self, message: Message):
@@ -91,10 +87,7 @@ class sAFKMod(loader.Module):
         self._cooldowns[message.sender_id] = time.time()
         elapsed = self._humanize(time.time() - self._since)
 
-        self._sending = True
         try:
             await message.reply(self.strings["reply"].format(self._reason, elapsed))
         except Exception:
             pass
-        finally:
-            self._sending = False
