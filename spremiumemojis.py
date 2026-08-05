@@ -2,6 +2,7 @@
 # meta name: sPremiumEmojis
 
 from herokutl.types import Message, MessageEntityCustomEmoji
+from herokutl.tl.functions.messages import EditMessageRequest
 
 from .. import loader, utils
 
@@ -47,8 +48,11 @@ class sPremiumEmojisMod(loader.Module):
                 MessageEntityCustomEmoji(offset=i, length=1, document_id=int(raw_id))
             )
 
-        await message.edit(
-            placeholder_char * len(ids),
-            formatting_entities=entities,
-            parse_mode=None,
+        await self._client(
+            EditMessageRequest(
+                peer=message.peer_id,
+                id=message.id,
+                message=placeholder_char * len(ids),
+                entities=entities,
+            )
         )
