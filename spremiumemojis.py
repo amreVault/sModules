@@ -47,4 +47,8 @@ class sPremiumEmojisMod(loader.Module):
                 MessageEntityCustomEmoji(offset=i, length=1, document_id=int(raw_id))
             )
 
-        await message.edit(placeholder_char * len(ids), formatting_entities=entities)
+        await message.edit(
+            placeholder_char * len(ids),
+            formatting_entities=entities,
+            parse_mode=None,
+        )
