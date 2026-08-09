@@ -11,7 +11,8 @@ from .. import loader, utils
 
 @loader.tds
 class sWelcomeMod(loader.Module):
-    """Приветствует новых участников чата кастомным текстом и медиа"""
+    """Приветствует новых участников чата кастомным текстом и медиа
+Плейсхолдеры: {name}, {mention}, {chat}"""
 
     strings = {
         "name": "sWelcome",
