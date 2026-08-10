@@ -15,7 +15,7 @@ QUERY_PREFIX = "sibmget"
 
 @loader.tds
 class sInlineButtonManagementMod(loader.Module):
-    """Сохраняет тексты с инлайн-кнопками и отправляет их от своего имени через инлайн-бота (via @bot)"""
+    """Создание кастомных инлайн кнопок"""
 
     strings = {
         "name": "sInlineButtonManagement",
@@ -61,7 +61,7 @@ class sInlineButtonManagementMod(loader.Module):
     def _save(self):
         self._db.set(self.strings["name"], self._db_key, self._buttons)
 
-    @loader.command(ru_doc="<текст> <ссылка> - сохранить текст с инлайн-кнопкой")
+    @loader.command(ru_doc="<текст> <ссылка> - сохранить текст с инлайн кнопкой")
     async def sibm(self, message: Message):
         """<text> <link> - save a text with an inline button"""
         args = utils.get_args_raw(message)
@@ -112,7 +112,7 @@ class sInlineButtonManagementMod(loader.Module):
         self._bot_entity = await self._client.get_entity(bot_username)
         return self._bot_entity
 
-    @loader.command(ru_doc="<id> - отправить сохранённый текст с кнопкой от своего имени (via @bot)")
+    @loader.command(ru_doc="<id> - отправить сохранённый текст с инлайн кнопкой")
     async def sibmsend(self, message: Message):
         """<id> - send the saved text with its button as yourself via the inline bot"""
         args = utils.get_args_raw(message)
