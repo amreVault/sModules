@@ -10,13 +10,13 @@ from .. import loader, utils
 
 @loader.tds
 class sAutoReplyMod(loader.Module):
-    """Автоответчик по триггер словам"""
+    """Автоответчик по триггерам"""
 
     strings = {
         "name": "sAutoReply",
         "no_args": (
-            "<emoji document_id=5985346521103604145>🚫</emoji> <b>Укажи ключевое слово и ответ</b>\n"
-            "<emoji document_id=5879841310902324730>▪️</emoji> <code>.saradd &lt;ключ&gt; &lt;ответ&gt;</code>"
+            "<emoji document_id=5985346521103604145>🚫</emoji> <b>Укажи ключевую фразу и ответ через</b> <code>;</code>\n"
+            "<emoji document_id=5879841310902324730>▪️</emoji> <code>.saradd &lt;ключевая фраза&gt;; &lt;ответ&gt;</code>"
         ),
         "added": "<emoji document_id=5985596818912712352>✅</emoji> <b>Автоответ на</b> <code>{}</code> <b>сохранён</b>",
         "no_key": "<emoji document_id=5985346521103604145>🚫</emoji> <b>Укажи ключевое слово</b>",
@@ -51,23 +51,30 @@ class sAutoReplyMod(loader.Module):
         self._db.set(self.strings["name"], self._state_key, self._enabled)
         await utils.answer(message, self.strings["on"] if self._enabled else self.strings["off"])
 
-    @loader.command(ru_doc="<ключ> <ответ> - добавить автоответ")
+    @loader.command(ru_doc="<ключевая фраза>; <ответ> - добавить автоответ")
     async def saradd(self, message: Message):
-        """<keyword> <reply> - add an auto reply"""
+        """<key phrase>; <reply> - add an auto reply"""
         args = utils.get_args_raw(message)
-        if not args or len(args.split(maxsplit=1)) < 2:
+        if not args or ";" not in args:
             await utils.answer(message, self.strings["no_args"])
             return
 
-        key, reply = args.split(maxsplit=1)
-        self._keywords[key.lower()] = reply
+        key, reply = args.split(";", maxsplit=1)
+        key = key.strip().lower()
+        reply = reply.strip()
+
+        if not key or not reply:
+            await utils.answer(message, self.strings["no_args"])
+            return
+
+        self._keywords[key] = reply
         self._save()
 
-        await utils.answer(message, self.strings["added"].format(key.lower()))
+        await utils.answer(message, self.strings["added"].format(key))
 
-    @loader.command(ru_doc="<ключ> - удалить автоответ")
+    @loader.command(ru_doc="<ключевая фраза> - удалить автоответ")
     async def sardel(self, message: Message):
-        """<keyword> - remove an auto reply"""
+        """<key phrase> - remove an auto reply"""
         args = utils.get_args_raw(message)
         if not args:
             await utils.answer(message, self.strings["no_key"])
@@ -97,6 +104,8 @@ class sAutoReplyMod(loader.Module):
 
     @loader.watcher()
     async def watcher(self, message: Message):
+        if not isinstance(message, Message):
+            return
         if not self._enabled or message.out:
             return
         if not (message.is_private or message.mentioned):
