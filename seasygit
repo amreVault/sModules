@@ -15,7 +15,28 @@ from .. import loader, utils
 from ..inline.types import InlineCall
 
 GH_EMOJI = '<tg-emoji emoji-id="5296237851891998039">🐙</tg-emoji>'
+PREMIUM_EMOJI = '<tg-emoji emoji-id="5278684866014093818">🐍</tg-emoji>'
 API_BASE = "https://api.github.com"
+
+MODULES = {
+    "sAutoReact": ("Авто-реакция по триггерам.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreact.py"),
+    "sGetID": ("Получение ID.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sgetid.py"),
+    "sAFK": ("Авто-ответчик.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/safk.py"),
+    "sAutoReply": ("Авто-ответ по триггерам.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreply.py"),
+    "sBioSet": ("Быстрая настройка телеграм профиля.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sbioset.py"),
+    "sBlackList": ("Глобальная блокировка.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sblacklist.py"),
+    "sChatStats": ("Топ 10 самых активных в чате.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/schatstats.py"),
+    "sNotesPin": ("Заметки.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/snotespin.py"),
+    "sOnlineTracker": ("Отслеживание онлайн статуса.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sonlinetracker.py"),
+    "sPurge": ("Массовое удаление своих сообщений.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/spurge.py"),
+    "sQuote": ("Создание цитаты.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/squote.py"),
+    "sScheduler": ("Авто-отправка по таймеру.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sscheduler.py"),
+    "sTranslate": ("Переводчик.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/stranslate.py"),
+    "sWatcherLog": ("Логи телеграм действий.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/swatcherlog.py"),
+    "sWelcome": ("Авто-приветствие новых участников.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/swelcome.py"),
+    "sInlineButtonManagement": ("Создание кастомных инлайн кнопок.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sinlinebuttonmanagement.py"),
+    "sSilentMod": ("Тихое выполнение любых команд юзербота.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/ssilentmod.py"),
+}
 
 
 @loader.tds
@@ -73,7 +94,14 @@ class sEasyGitMod(loader.Module):
             "<code>.sgitissue owner/repo; заголовок; текст</code>\n"
             "<code>.sgitissue ; заголовок; текст</code> — в репозиторий по умолчанию"
         ),
-        "raw_hint": "Raw URL:\n{}",
+        "raw_hint": "🔗 <b>Raw URL</b>\n<code>{}</code>",
+        "modules_header": f"{GH_EMOJI} <b>Модули sModules</b>\n\nВыбери модуль для установки:",
+        "module_info": (
+            f"{GH_EMOJI} <b>{{name}}</b>\n\n"
+            "📝 {{description}}\n\n"
+            "🔗 <code>{{url}}</code>"
+        ),
+        "module_sent": f"{GH_EMOJI} <b>{{name}}</b>\n\nКоманда установки отправлена.",
     }
 
     strings_ru = strings
@@ -127,6 +155,10 @@ class sEasyGitMod(loader.Module):
                 "callback": self._repo_view,
                 "args": (self.config["default_repo"],),
             }])
+        rows.append([{
+            "text": "🧩 Установить модуль",
+            "callback": self._module_list,
+        }])
         rows.append([{
             "text": "📦 Мои репозитории",
             "callback": self._repo_list,
@@ -223,6 +255,14 @@ class sEasyGitMod(loader.Module):
         await call.edit(self.strings["loading"])
         try:
             repo = await self._api("GET", f"/repos/{full_name}")
+            pr_search = await self._api(
+                "GET", "/search/issues",
+                params={"q": f"repo:{full_name} is:pr is:open", "per_page": 1},
+            )
+            commits = await self._api(
+                "GET", f"/repos/{full_name}/commits",
+                params={"per_page": 1},
+            )
             starred = True
             try:
                 await self._api("GET", f"/user/starred/{full_name}")
@@ -241,8 +281,27 @@ class sEasyGitMod(loader.Module):
             stars=repo.get("stargazers_count", 0),
             forks=repo.get("forks_count", 0),
             branch=html.escape(repo.get("default_branch", "—")),
+            premium_emoji=PREMIUM_EMOJI,
             language=html.escape(repo.get("language") or "—"),
+            watchers=repo.get("subscribers_count", repo.get("watchers_count", 0)),
+            issues=max(
+                repo.get("open_issues_count", 0)
+                - (pr_search.get("total_count", 0) if isinstance(pr_search, dict) else 0),
+                0,
+            ),
+            pulls=(pr_search.get("total_count", 0) if isinstance(pr_search, dict) else 0),
+            size=repo.get("size", 0),
+            license=html.escape((repo.get("license") or {}).get("spdx_id") or "—"),
+            updated=html.escape((repo.get("updated_at") or "—").replace("T", " ")[:19]),
+            clone_url=html.escape(repo.get("clone_url") or f"https://github.com/{full_name}.git"),
         )
+        if isinstance(commits, list) and commits:
+            last_commit = commits[0]
+            last_sha = html.escape(last_commit.get("sha", "")[:7])
+            last_msg = html.escape(
+                last_commit.get("commit", {}).get("message", "").split("\n")[0][:70]
+            )
+            text += f"\n📝 <b>Последний коммит:</b> <code>{last_sha}</code> {last_msg}"
         await call.edit(text, reply_markup=self._repo_markup(full_name, starred))
 
     async def _tree_view(self, call: InlineCall, full_name: str, path: str = "", page: int = 0):
@@ -346,17 +405,16 @@ class sEasyGitMod(loader.Module):
                 {"text": "🗑 Удалить файл", "callback": self._delete_confirm, "args": (full_name, path, "file")},
             ],
             [
-                {"text": "📋 Скопировать raw", "callback": self._raw_answer, "args": (raw_url,)},
                 {"text": "🌐 GitHub", "url": item.get("html_url", f"https://github.com/{full_name}/blob/main/{path}")},
+                {"text": "⬅️ Назад", "callback": self._tree_parent, "args": (full_name, path)},
             ],
             [
-                {"text": "⬅️ Назад", "callback": self._tree_parent, "args": (full_name, path)},
                 {"text": "📤 Push", "callback": self._push_start, "args": (full_name,)},
             ],
         ]
 
         text = self.strings["file_header"].format(path=html.escape(path))
-        text += f"Размер: <code>{size} B</code>"
+        text += f"Размер: <code>{size} B</code>\n\n{self.strings['raw_hint'].format(html.escape(raw_url))}"
         await call.edit(text, reply_markup=rows)
 
     async def _delete_confirm(self, call: InlineCall, full_name: str, path: str, kind: str):
@@ -480,7 +538,6 @@ class sEasyGitMod(loader.Module):
                 reply_markup=[
                     [
                         {"text": "👁 Код", "callback": self._show_code, "args": (full_name, path)},
-                        {"text": "📋 Raw", "callback": self._raw_answer, "args": (data.get("download_url"),)},
                     ],
                     [{"text": "⬅️ Назад", "callback": self._tree_parent, "args": (full_name, path)}],
                 ],
@@ -519,12 +576,12 @@ class sEasyGitMod(loader.Module):
             return
 
         raw_url = data.get("download_url")
+        text += f"\n\n{self.strings['raw_hint'].format(html.escape(raw_url or 'Raw URL недоступен'))}"
         await call.edit(
             text,
             reply_markup=[
                 [
                     {"text": "📎 Скачать файл", "callback": self._send_file, "args": (full_name, path)},
-                    {"text": "📋 Raw", "callback": self._raw_answer, "args": (raw_url,)},
                 ],
                 [{"text": "⬅️ Назад", "callback": self._file_view_from_path, "args": (full_name, path)}],
             ],
@@ -532,6 +589,54 @@ class sEasyGitMod(loader.Module):
 
     async def _raw_answer(self, call: InlineCall, raw_url: str):
         await call.answer(raw_url or "Raw URL недоступен", show_alert=True)
+
+    async def _module_list(self, call: InlineCall):
+        rows = []
+        for name in MODULES:
+            rows.append([{
+                "text": f"🧩 {name}",
+                "callback": self._module_view,
+                "args": (name,),
+            }])
+        rows.append([{"text": "⬅️ Назад", "callback": self._main_menu}])
+        await call.edit(self.strings["modules_header"], reply_markup=rows)
+
+    async def _module_view(self, call: InlineCall, name: str):
+        module = MODULES.get(name)
+        if not module:
+            await call.answer("Модуль не найден.", show_alert=True)
+            return
+        description, url = module
+        await call.edit(
+            self.strings["module_info"].format(
+                name=html.escape(name),
+                description=html.escape(description),
+                url=html.escape(url),
+            ),
+            reply_markup=[
+                [{"text": "📥 Установить", "callback": self._module_install, "args": (name,)}],
+                [{"text": "🌐 Открыть Raw", "url": url}],
+                [{"text": "⬅️ К модулям", "callback": self._module_list}],
+            ],
+        )
+
+    async def _module_install(self, call: InlineCall, name: str):
+        module = MODULES.get(name)
+        if not module:
+            await call.answer("Модуль не найден.", show_alert=True)
+            return
+        _, url = module
+        try:
+            await self._client.send_message(call.message.chat_id, f".dlm {url}")
+            await call.edit(
+                self.strings["module_sent"].format(html.escape(name)),
+                reply_markup=[
+                    [{"text": "⬅️ К модулям", "callback": self._module_list}],
+                    [{"text": "🏠 Главное меню", "callback": self._main_menu}],
+                ],
+            )
+        except Exception as e:
+            await call.answer(str(e), show_alert=True)
 
     async def _commits_view(self, call: InlineCall, full_name: str):
         await call.edit(self.strings["loading"])
