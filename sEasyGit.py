@@ -1,0 +1,900 @@
+# meta developer: @smodules
+
+import asyncio
+import base64
+import html
+import os
+import tempfile
+from pathlib import PurePosixPath
+
+import aiohttp
+
+from herokutl.types import Message
+
+from .. import loader, utils
+from ..inline.types import InlineCall
+
+GH_EMOJI = '<tg-emoji emoji-id="5296237851891998039">🐙</tg-emoji>'
+PREMIUM_EMOJI = '<tg-emoji emoji-id="5278684866014093818">🐍</tg-emoji>'
+API_BASE = "https://api.github.com"
+
+MODULES = {
+    "sAutoReact": ("Авто-реакция по триггерам.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreact.py"),
+    "sGetID": ("Получение ID.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sgetid.py"),
+    "sAFK": ("Авто-ответчик.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/safk.py"),
+    "sAutoReply": ("Авто-ответ по триггерам.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sautoreply.py"),
+    "sBioSet": ("Быстрая настройка телеграм профиля.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sbioset.py"),
+    "sBlackList": ("Глобальная блокировка.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sblacklist.py"),
+    "sChatStats": ("Топ 10 самых активных в чате.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/schatstats.py"),
+    "sNotesPin": ("Заметки.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/snotespin.py"),
+    "sOnlineTracker": ("Отслеживание онлайн статуса.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sonlinetracker.py"),
+    "sPurge": ("Массовое удаление своих сообщений.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/spurge.py"),
+    "sQuote": ("Создание цитаты.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/squote.py"),
+    "sScheduler": ("Авто-отправка по таймеру.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sscheduler.py"),
+    "sTranslate": ("Переводчик.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/stranslate.py"),
+    "sWatcherLog": ("Логи телеграм действий.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/swatcherlog.py"),
+    "sWelcome": ("Авто-приветствие новых участников.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/swelcome.py"),
+    "sInlineButtonManagement": ("Создание кастомных инлайн кнопок.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/sinlinebuttonmanagement.py"),
+    "sSilentMod": ("Тихое выполнение любых команд юзербота.", "https://raw.githubusercontent.com/amreVault/sModules/refs/heads/main/ssilentmod.py"),
+}
+
+
+@loader.tds
+class sEasyGitMod(loader.Module):
+    """GitHub manager with an inline UI."""
+
+    strings = {
+        "name": "sEasyGit",
+        "no_token": (
+            f"{GH_EMOJI} <b>Не задан GitHub token</b>\n"
+            "Установи его в конфиге: <code>.cfg sEasyGit</code>"
+        ),
+        "main_menu": f"{GH_EMOJI} <b>sEasyGit</b>\n\nВыбери действие",
+        "loading": f"{GH_EMOJI} <i>Загрузка...</i>",
+        "api_error": f"{GH_EMOJI} <b>Ошибка GitHub API:</b>\n<code>{{}}</code>",
+        "no_default_repo": "Репозиторий по умолчанию не задан в конфиге",
+        "no_local_path": "Локальный путь не задан в конфиге",
+        "repo_list_header": f"{GH_EMOJI} <b>Твои репозитории</b>\n\nВыбери репозиторий",
+        "repo_info": (
+            f"{GH_EMOJI} <b>{{full_name}}</b>\n\n"
+            "{description}\n\n"
+            "⭐ <b>{stars}</b> · 🍴 <b>{forks}</b> · 🌿 <code>{branch}</code>\n"
+            "🗣 {language}"
+        ),
+        "tree_header": f"{GH_EMOJI} <b>🌳 {{repo}}</b>\n<code>{{path}}</code>\n\n",
+        "file_header": f"{GH_EMOJI} <b>📄 {{path}}</b>\n\n",
+        "commits_header": "📝 <b>Последние коммиты — {}</b>\n\n",
+        "commit_item": "▫️ <code>{}</code> {}\n   <i>{}</i>\n\n",
+        "issues_header": "🐛 <b>Открытые issues — {}</b>\n\n",
+        "issue_item": "▫️ <b>#{}</b> {}\n",
+        "no_issues": "Открытых issues нет",
+        "no_commits": "Коммитов не найдено",
+        "starred": "⭐ Добавлено в избранное",
+        "unstarred": "💔 Убрано из избранного",
+        "pull_running": f"{GH_EMOJI} <i>Выполняю git pull...</i>",
+        "pull_result": f"{GH_EMOJI} <b>Git pull завершён</b>\n\n<code>{{}}</code>",
+        "push_usage": (
+            f"{GH_EMOJI} <b>GitHub Push</b>\n\n"
+            "Ответь командой <code>.sgitpush</code> на сообщение с файлом.\n"
+            "После этого выбери репозиторий, путь файла и введи сообщение коммита."
+        ),
+        "push_file_required": f"{GH_EMOJI} <b>Нужен файл</b>\nОтветь <code>.sgitpush</code> на сообщение с файлом.",
+        "push_choose_repo": f"{GH_EMOJI} <b>📤 Push</b>\n\nВыбери репозиторий:",
+        "push_path": f"{GH_EMOJI} <b>Путь файла</b>\n\nВведи путь относительно корня репозитория.",
+        "push_commit": f"{GH_EMOJI} <b>Сообщение коммита</b>\n\nВведи commit message:",
+        "push_done": f"{GH_EMOJI} <b>Push выполнен</b>\n\n<code>{{}}</code>",
+        "push_error": f"{GH_EMOJI} <b>Push не выполнен</b>\n\n<code>{{}}</code>",
+        "delete_confirm": f"{GH_EMOJI} <b>Удаление</b>\n\nУдалить <code>{{}}</code>?\n\nЭто действие создаст commit и удалить объект из репозитория.",
+        "delete_running": f"{GH_EMOJI} <i>Удаляю <code>{{}}</code>...</i>",
+        "delete_done": f"{GH_EMOJI} <b>Удаление выполнено</b>\n\n<code>{{}}</code>",
+        "delete_error": f"{GH_EMOJI} <b>Удаление не выполнено</b>\n\n<code>{{}}</code>",
+        "issue_created": f"{GH_EMOJI} <b>Issue создан:</b> {{}}",
+        "issue_usage": (
+            f"{GH_EMOJI} <b>Использование:</b>\n"
+            "<code>.sgitissue owner/repo; заголовок; текст</code>\n"
+            "<code>.sgitissue ; заголовок; текст</code> — в репозиторий по умолчанию"
+        ),
+        "raw_hint": "🔗 <b>Raw URL</b>\n<code>{}</code>",
+        "modules_header": f"{GH_EMOJI} <b>Модули sModules</b>\n\nВыбери модуль для установки:",
+        "module_info": (
+            f"{GH_EMOJI} <b>{{name}}</b>\n\n"
+            "📝 {{description}}\n\n"
+            "🔗 <code>{{url}}</code>"
+        ),
+        "module_sent": f"{GH_EMOJI} <b>{{name}}</b>\n\nКоманда установки отправлена.",
+    }
+
+    strings_ru = strings
+
+    def __init__(self):
+        self.config = loader.ModuleConfig(
+            loader.ConfigValue(
+                "github_token", "", "GitHub Personal Access Token",
+                validator=loader.validators.Hidden(),
+            ),
+            loader.ConfigValue(
+                "default_repo", "", "Репозиторий по умолчанию: owner/repo",
+            ),
+            loader.ConfigValue(
+                "local_repo_path", "", "Локальный путь на сервере для git pull",
+            ),
+        )
+        self._push_state = {}
+
+    async def client_ready(self, client, db):
+        self._client = client
+
+    def _headers(self):
+        return {
+            "Authorization": f"Bearer {self.config['github_token']}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    async def _api(self, method: str, path: str, **kwargs):
+        url = f"{API_BASE}{path}"
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                method, url, headers=self._headers(), timeout=30, **kwargs
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else {}
+                if resp.status >= 400:
+                    raise RuntimeError(data.get("message", f"HTTP {resp.status}"))
+                return data
+
+    @staticmethod
+    def _safe_name(path: str) -> str:
+        name = PurePosixPath(path).name or "github_file"
+        return name.replace("/", "_").replace("\\", "_")
+
+    def _main_markup(self):
+        rows = []
+        if self.config["default_repo"]:
+            rows.append([{
+                "text": f"⭐ {self.config['default_repo']}",
+                "callback": self._repo_view,
+                "args": (self.config["default_repo"],),
+            }])
+        rows.append([{
+            "text": "🧩 Установить модуль",
+            "callback": self._module_list,
+        }])
+        rows.append([{
+            "text": "📦 Мои репозитории",
+            "callback": self._repo_list,
+            "args": (0,),
+        }])
+        rows.append([
+            {"text": "📤 Push", "callback": self._push_start},
+            {"text": "📥 Pull", "callback": self._git_pull},
+        ])
+        rows.append([
+            {"text": "🔄 Обновить", "callback": self._main_menu},
+            {"text": "❌ Закрыть", "action": "close"},
+        ])
+        return rows
+
+    async def _main_menu(self, call: InlineCall):
+        await call.edit(self.strings["main_menu"], reply_markup=self._main_markup())
+
+    @loader.command(ru_doc="открыть панель управления GitHub")
+    async def sgit(self, message: Message):
+        """open the GitHub control panel"""
+        if not self.config["github_token"]:
+            await utils.answer(message, self.strings["no_token"])
+            return
+        await self.inline.form(
+            text=self.strings["main_menu"],
+            message=message,
+            reply_markup=self._main_markup(),
+        )
+
+    async def _repo_list(self, call: InlineCall, page: int):
+        await call.edit(self.strings["loading"])
+        try:
+            repos = await self._api(
+                "GET", "/user/repos",
+                params={"sort": "updated", "per_page": 100},
+            )
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(),
+            )
+            return
+
+        per_page = 6
+        total_pages = max(1, (len(repos) + per_page - 1) // per_page)
+        page = max(0, min(page, total_pages - 1))
+        chunk = repos[page * per_page:(page + 1) * per_page]
+
+        rows = []
+        for repo in chunk:
+            rows.append([{
+                "text": repo["full_name"],
+                "callback": self._repo_view,
+                "args": (repo["full_name"],),
+            }])
+
+        nav = []
+        if page > 0:
+            nav.append({"text": "⬅️", "callback": self._repo_list, "args": (page - 1,)})
+        nav.append({"text": f"{page + 1}/{total_pages}", "callback": self._repo_list, "args": (page,)})
+        if page < total_pages - 1:
+            nav.append({"text": "➡️", "callback": self._repo_list, "args": (page + 1,)})
+        rows.append(nav)
+        rows.append([
+            {"text": "⬅️ Назад", "callback": self._main_menu},
+            {"text": "❌ Закрыть", "action": "close"},
+        ])
+        await call.edit(self.strings["repo_list_header"], reply_markup=rows)
+
+    def _repo_markup(self, full_name: str, starred: bool = False):
+        star_label = "💔 Unstar" if starred else "⭐ Star"
+        return [
+            [
+                {"text": "🌳 Tree", "callback": self._tree_view, "args": (full_name, "", 0)},
+                {"text": "📝 Коммиты", "callback": self._commits_view, "args": (full_name,)},
+            ],
+            [
+                {"text": "🐛 Issues", "callback": self._issues_view, "args": (full_name,)},
+                {"text": "📤 Push", "callback": self._push_start, "args": (full_name,)},
+            ],
+            [
+                {"text": star_label, "callback": self._toggle_star, "args": (full_name,)},
+                {"text": "🌐 Открыть", "url": f"https://github.com/{full_name}"},
+            ],
+            [
+                {"text": "⬅️ Назад", "callback": self._repo_list, "args": (0,)},
+                {"text": "🔄 Обновить", "callback": self._repo_view, "args": (full_name,)},
+            ],
+            [{"text": "❌ Закрыть", "action": "close"}],
+        ]
+
+    async def _repo_view(self, call: InlineCall, full_name: str):
+        await call.edit(self.strings["loading"])
+        try:
+            repo = await self._api("GET", f"/repos/{full_name}")
+            pr_search = await self._api(
+                "GET", "/search/issues",
+                params={"q": f"repo:{full_name} is:pr is:open", "per_page": 1},
+            )
+            commits = await self._api(
+                "GET", f"/repos/{full_name}/commits",
+                params={"per_page": 1},
+            )
+            starred = True
+            try:
+                await self._api("GET", f"/user/starred/{full_name}")
+            except Exception:
+                starred = False
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(),
+            )
+            return
+
+        text = self.strings["repo_info"].format(
+            full_name=html.escape(repo["full_name"]),
+            description=html.escape(repo.get("description") or "без описания"),
+            stars=repo.get("stargazers_count", 0),
+            forks=repo.get("forks_count", 0),
+            branch=html.escape(repo.get("default_branch", "—")),
+            premium_emoji=PREMIUM_EMOJI,
+            language=html.escape(repo.get("language") or "—"),
+            watchers=repo.get("subscribers_count", repo.get("watchers_count", 0)),
+            issues=max(
+                repo.get("open_issues_count", 0)
+                - (pr_search.get("total_count", 0) if isinstance(pr_search, dict) else 0),
+                0,
+            ),
+            pulls=(pr_search.get("total_count", 0) if isinstance(pr_search, dict) else 0),
+            size=repo.get("size", 0),
+            license=html.escape((repo.get("license") or {}).get("spdx_id") or "—"),
+            updated=html.escape((repo.get("updated_at") or "—").replace("T", " ")[:19]),
+            clone_url=html.escape(repo.get("clone_url") or f"https://github.com/{full_name}.git"),
+        )
+        if isinstance(commits, list) and commits:
+            last_commit = commits[0]
+            last_sha = html.escape(last_commit.get("sha", "")[:7])
+            last_msg = html.escape(
+                last_commit.get("commit", {}).get("message", "").split("\n")[0][:70]
+            )
+            text += f"\n📝 <b>Последний коммит:</b> <code>{last_sha}</code> {last_msg}"
+        await call.edit(text, reply_markup=self._repo_markup(full_name, starred))
+
+    async def _tree_view(self, call: InlineCall, full_name: str, path: str = "", page: int = 0):
+        await call.edit(self.strings["loading"])
+        try:
+            items = await self._api(
+                "GET",
+                f"/repos/{full_name}/contents/{path}" if path else f"/repos/{full_name}/contents",
+            )
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(full_name),
+            )
+            return
+
+        if isinstance(items, dict):
+            await self._file_view(call, full_name, path, items)
+            return
+
+        dirs = sorted([x for x in items if x.get("type") == "dir"], key=lambda x: x["name"].lower())
+        files = sorted([x for x in items if x.get("type") == "file"], key=lambda x: x["name"].lower())
+        entries = dirs + files
+
+        per_page = 8
+        total_pages = max(1, (len(entries) + per_page - 1) // per_page)
+        page = max(0, min(page, total_pages - 1))
+        chunk = entries[page * per_page:(page + 1) * per_page]
+
+        rows = []
+        for item in chunk:
+            item_path = item["path"]
+            if item["type"] == "dir":
+                rows.append([{
+                    "text": f"📁 {item['name']}",
+                    "callback": self._tree_view,
+                    "args": (full_name, item_path, 0),
+                }])
+            else:
+                rows.append([{
+                    "text": f"📄 {item['name']}",
+                    "callback": self._file_view_from_path,
+                    "args": (full_name, item_path),
+                }])
+
+        nav = []
+        if page > 0:
+            nav.append({"text": "⬅️", "callback": self._tree_view, "args": (full_name, path, page - 1)})
+        nav.append({"text": f"{page + 1}/{total_pages}", "callback": self._tree_view, "args": (full_name, path, page)})
+        if page < total_pages - 1:
+            nav.append({"text": "➡️", "callback": self._tree_view, "args": (full_name, path, page + 1)})
+        rows.append(nav)
+        rows.append([
+            {"text": "⬆️ Вверх", "callback": self._tree_parent, "args": (full_name, path)},
+            {"text": "📤 Push", "callback": self._push_start, "args": (full_name,)},
+        ])
+        if path:
+            rows.append([
+                {"text": "🗑 Удалить папку", "callback": self._delete_confirm, "args": (full_name, path, "dir")},
+            ])
+        rows.append([{"text": "⬅️ Репозиторий", "callback": self._repo_view, "args": (full_name,)}])
+
+        header = self.strings["tree_header"].format(
+            repo=html.escape(full_name),
+            path=html.escape(path or "/"),
+        )
+        await call.edit(header, reply_markup=rows)
+
+    async def _tree_parent(self, call: InlineCall, full_name: str, path: str):
+        parent = str(PurePosixPath(path).parent) if path else ""
+        if parent == ".":
+            parent = ""
+        await self._tree_view(call, full_name, parent, 0)
+
+    async def _file_view_from_path(self, call: InlineCall, full_name: str, path: str):
+        await call.edit(self.strings["loading"])
+        try:
+            item = await self._api("GET", f"/repos/{full_name}/contents/{path}")
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(full_name),
+            )
+            return
+        await self._file_view(call, full_name, path, item)
+
+    async def _file_view(self, call: InlineCall, full_name: str, path: str, item: dict):
+        if item.get("type") != "file":
+            await self._tree_view(call, full_name, path, 0)
+            return
+
+        raw_url = item.get("download_url") or f"https://raw.githubusercontent.com/{full_name}/{item.get('sha')}/{path}"
+        size = item.get("size", 0)
+
+        rows = [
+            [
+                {"text": "📎 Скачать файл", "callback": self._send_file, "args": (full_name, path)},
+                {"text": "👁 Код", "callback": self._show_code, "args": (full_name, path)},
+            ],
+            [
+                {"text": "🗑 Удалить файл", "callback": self._delete_confirm, "args": (full_name, path, "file")},
+            ],
+            [
+                {"text": "🌐 GitHub", "url": item.get("html_url", f"https://github.com/{full_name}/blob/main/{path}")},
+                {"text": "⬅️ Назад", "callback": self._tree_parent, "args": (full_name, path)},
+            ],
+            [
+                {"text": "📤 Push", "callback": self._push_start, "args": (full_name,)},
+            ],
+        ]
+
+        text = self.strings["file_header"].format(path=html.escape(path))
+        text += f"Размер: <code>{size} B</code>\n\n{self.strings['raw_hint'].format(html.escape(raw_url))}"
+        await call.edit(text, reply_markup=rows)
+
+    async def _delete_confirm(self, call: InlineCall, full_name: str, path: str, kind: str):
+        label = "папку" if kind == "dir" else "файл"
+        await call.edit(
+            self.strings["delete_confirm"].format(html.escape(path)),
+            reply_markup=[
+                [
+                    {
+                        "text": f"🗑 Да, удалить {label}",
+                        "callback": self._delete_execute,
+                        "args": (full_name, path, kind),
+                    },
+                    {"text": "❌ Отмена", "callback": self._delete_cancel, "args": (full_name, path, kind)},
+                ],
+            ],
+        )
+
+    async def _delete_cancel(self, call: InlineCall, full_name: str, path: str, kind: str):
+        if kind == "file":
+            await self._file_view_from_path(call, full_name, path)
+        else:
+            await self._tree_view(call, full_name, path, 0)
+
+    async def _delete_execute(self, call: InlineCall, full_name: str, path: str, kind: str):
+        await call.edit(self.strings["delete_running"].format(html.escape(path)))
+        try:
+            if kind == "file":
+                item = await self._api("GET", f"/repos/{full_name}/contents/{path}")
+                if item.get("type") != "file":
+                    raise RuntimeError("Указанный объект не является файлом.")
+
+                sha = item.get("sha")
+                if not sha:
+                    raise RuntimeError("GitHub не вернул SHA файла.")
+
+                result = await self._api(
+                    "DELETE",
+                    f"/repos/{full_name}/contents/{path}",
+                    json={
+                        "message": f"Delete {path}",
+                        "sha": sha,
+                    },
+                )
+                commit_url = result.get("commit", {}).get("html_url") or "готово"
+                parent = str(PurePosixPath(path).parent)
+                if parent == ".":
+                    parent = ""
+            else:
+                items = await self._api("GET", f"/repos/{full_name}/contents/{path}")
+                if isinstance(items, dict):
+                    items = [items]
+
+                files = []
+                stack = list(items)
+                while stack:
+                    item = stack.pop()
+                    item_type = item.get("type")
+                    item_path = item.get("path")
+                    if item_type == "file":
+                        files.append((item_path, item.get("sha")))
+                    elif item_type == "dir":
+                        children = await self._api(
+                            "GET", f"/repos/{full_name}/contents/{item_path}"
+                        )
+                        if isinstance(children, dict):
+                            children = [children]
+                        stack.extend(children)
+
+                for file_path, sha in files:
+                    if not sha:
+                        raise RuntimeError(f"GitHub не вернул SHA для {file_path}.")
+                    await self._api(
+                        "DELETE",
+                        f"/repos/{full_name}/contents/{file_path}",
+                        json={
+                            "message": f"Delete {file_path}",
+                            "sha": sha,
+                        },
+                    )
+
+                commit_url = f"https://github.com/{full_name}/commits"
+                parent = str(PurePosixPath(path).parent)
+                if parent == ".":
+                    parent = ""
+
+            await call.edit(
+                self.strings["delete_done"].format(html.escape(commit_url)),
+                reply_markup=[
+                    [{"text": "⬅️ Назад", "callback": self._tree_view, "args": (full_name, parent, 0)}],
+                    [{"text": "🏠 Репозиторий", "callback": self._repo_view, "args": (full_name,)}],
+                ],
+            )
+        except Exception as e:
+            await call.edit(
+                self.strings["delete_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(full_name),
+            )
+
+    async def _get_file_bytes(self, full_name: str, path: str):
+        data = await self._api("GET", f"/repos/{full_name}/contents/{path}")
+        content = data.get("content", "")
+        if not content:
+            raise RuntimeError("GitHub не вернул содержимое файла")
+        return base64.b64decode(content.replace("\n", "")), data
+
+    async def _send_file(self, call: InlineCall, full_name: str, path: str):
+        await call.answer("Скачиваю файл…")
+        tmp = None
+        try:
+            content, data = await self._get_file_bytes(full_name, path)
+            suffix = PurePosixPath(path).suffix
+            fd, tmp = tempfile.mkstemp(prefix="sgit_", suffix=suffix)
+            os.close(fd)
+            with open(tmp, "wb") as f:
+                f.write(content)
+            await call.edit(
+                text=f"📄 <b>{html.escape(path)}</b>",
+                file=tmp,
+                mime_type=data.get("type") or "application/octet-stream",
+                reply_markup=[
+                    [
+                        {"text": "👁 Код", "callback": self._show_code, "args": (full_name, path)},
+                    ],
+                    [{"text": "⬅️ Назад", "callback": self._tree_parent, "args": (full_name, path)}],
+                ],
+            )
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(full_name),
+            )
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+    async def _show_code(self, call: InlineCall, full_name: str, path: str):
+        await call.edit(self.strings["loading"])
+        try:
+            content, data = await self._get_file_bytes(full_name, path)
+            if len(content) > 90000:
+                text = "Файл слишком большой для просмотра кодом. Используй «Скачать файл»."
+            else:
+                decoded = content.decode("utf-8", errors="replace")
+                text = f"{self.strings['file_header'].format(path=html.escape(path))}<pre>{html.escape(decoded)}</pre>"
+                if len(text) > 4000:
+                    text = (
+                        f"{self.strings['file_header'].format(path=html.escape(path))}"
+                        "<i>Код слишком большой для одного Telegram-сообщения.</i>"
+                    )
+        except Exception as e:
+            await call.edit(
+                self.strings["api_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(full_name),
+            )
+            return
+
+        raw_url = data.get("download_url")
+        text += f"\n\n{self.strings['raw_hint'].format(html.escape(raw_url or 'Raw URL недоступен'))}"
+        await call.edit(
+            text,
+            reply_markup=[
+                [
+                    {"text": "📎 Скачать файл", "callback": self._send_file, "args": (full_name, path)},
+                ],
+                [{"text": "⬅️ Назад", "callback": self._file_view_from_path, "args": (full_name, path)}],
+            ],
+        )
+
+    async def _raw_answer(self, call: InlineCall, raw_url: str):
+        await call.answer(raw_url or "Raw URL недоступен", show_alert=True)
+
+    async def _module_list(self, call: InlineCall):
+        rows = []
+        for name in MODULES:
+            rows.append([{
+                "text": f"🧩 {name}",
+                "callback": self._module_view,
+                "args": (name,),
+            }])
+        rows.append([{"text": "⬅️ Назад", "callback": self._main_menu}])
+        await call.edit(self.strings["modules_header"], reply_markup=rows)
+
+    async def _module_view(self, call: InlineCall, name: str):
+        module = MODULES.get(name)
+        if not module:
+            await call.answer("Модуль не найден.", show_alert=True)
+            return
+        description, url = module
+        await call.edit(
+            self.strings["module_info"].format(
+                name=html.escape(name),
+                description=html.escape(description),
+                url=html.escape(url),
+            ),
+            reply_markup=[
+                [{"text": "📥 Установить", "callback": self._module_install, "args": (name,)}],
+                [{"text": "🌐 Открыть Raw", "url": url}],
+                [{"text": "⬅️ К модулям", "callback": self._module_list}],
+            ],
+        )
+
+    async def _module_install(self, call: InlineCall, name: str):
+        module = MODULES.get(name)
+        if not module:
+            await call.answer("Модуль не найден.", show_alert=True)
+            return
+        _, url = module
+        try:
+            await self._client.send_message(call.message.chat_id, f".dlm {url}")
+            await call.edit(
+                self.strings["module_sent"].format(html.escape(name)),
+                reply_markup=[
+                    [{"text": "⬅️ К модулям", "callback": self._module_list}],
+                    [{"text": "🏠 Главное меню", "callback": self._main_menu}],
+                ],
+            )
+        except Exception as e:
+            await call.answer(str(e), show_alert=True)
+
+    async def _commits_view(self, call: InlineCall, full_name: str):
+        await call.edit(self.strings["loading"])
+        try:
+            commits = await self._api("GET", f"/repos/{full_name}/commits", params={"per_page": 5})
+        except Exception as e:
+            await call.edit(self.strings["api_error"].format(html.escape(str(e))), reply_markup=self._back_markup(full_name))
+            return
+
+        text = self.strings["commits_header"].format(html.escape(full_name))
+        if not commits:
+            text += self.strings["no_commits"]
+        else:
+            for c in commits:
+                sha = c["sha"][:7]
+                msg_line = html.escape(c["commit"]["message"].split("\n")[0][:60])
+                author = html.escape(c["commit"]["author"]["name"])
+                text += self.strings["commit_item"].format(sha, msg_line, author)
+        await call.edit(text, reply_markup=self._back_markup(full_name))
+
+    async def _issues_view(self, call: InlineCall, full_name: str):
+        await call.edit(self.strings["loading"])
+        try:
+            issues = await self._api("GET", f"/repos/{full_name}/issues", params={"state": "open", "per_page": 5})
+        except Exception as e:
+            await call.edit(self.strings["api_error"].format(html.escape(str(e))), reply_markup=self._back_markup(full_name))
+            return
+
+        text = self.strings["issues_header"].format(html.escape(full_name))
+        issues = [i for i in issues if "pull_request" not in i]
+        if not issues:
+            text += self.strings["no_issues"]
+        else:
+            for i in issues:
+                text += self.strings["issue_item"].format(i["number"], html.escape(i["title"][:60]))
+        await call.edit(text, reply_markup=self._back_markup(full_name))
+
+    async def _toggle_star(self, call: InlineCall, full_name: str):
+        try:
+            currently_starred = True
+            try:
+                await self._api("GET", f"/user/starred/{full_name}")
+            except RuntimeError:
+                currently_starred = False
+
+            if currently_starred:
+                await self._api("DELETE", f"/user/starred/{full_name}")
+                await call.answer(self.strings["unstarred"])
+            else:
+                await self._api("PUT", f"/user/starred/{full_name}")
+                await call.answer(self.strings["starred"])
+        except Exception as e:
+            await call.answer(str(e), show_alert=True)
+            return
+        await self._repo_view(call, full_name)
+
+    def _back_markup(self, full_name: str = None):
+        if full_name:
+            return [
+                [{"text": "⬅️ Назад", "callback": self._repo_view, "args": (full_name,)}],
+                [{"text": "❌ Закрыть", "action": "close"}],
+            ]
+        return [
+            [{"text": "⬅️ Назад", "callback": self._main_menu}],
+            [{"text": "❌ Закрыть", "action": "close"}],
+        ]
+
+    async def _git_pull(self, call: InlineCall):
+        path = self.config["local_repo_path"]
+        if not path:
+            await call.answer(self.strings["no_local_path"], show_alert=True)
+            return
+
+        await call.edit(self.strings["pull_running"])
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", path, "pull",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await proc.communicate()
+            output = stdout.decode(errors="ignore").strip()[:1800] or "готово"
+        except Exception as e:
+            output = str(e)
+        await call.edit(
+            self.strings["pull_result"].format(html.escape(output)),
+            reply_markup=self._main_markup(),
+        )
+
+    async def _push_start(self, call: InlineCall, full_name: str = None):
+        repo = full_name or self.config["default_repo"]
+        if not repo:
+            await call.edit(self.strings["push_choose_repo"], reply_markup=[
+                [{"text": "📦 Выбрать репозиторий", "callback": self._repo_list, "args": (0,)}],
+                [{"text": "⬅️ Назад", "callback": self._main_menu}],
+            ])
+            return
+
+        await call.edit(
+            self.strings["push_usage"] + f"\n\n<b>Репозиторий:</b> <code>{html.escape(repo)}</code>",
+            reply_markup=[
+                [{"text": "📦 Выбрать другой", "callback": self._repo_list, "args": (0,)}],
+                [{"text": "⬅️ Назад", "callback": self._repo_view, "args": (repo,)}],
+            ],
+        )
+
+    @loader.command(ru_doc="ответом на файл начать GitHub push")
+    async def sgitpush(self, message: Message):
+        """start an interactive GitHub push from a replied Telegram file"""
+        if not self.config["github_token"]:
+            await utils.answer(message, self.strings["no_token"])
+            return
+
+        reply = await message.get_reply_message()
+        if not reply or not getattr(reply, "file", None):
+            await utils.answer(message, self.strings["push_file_required"])
+            return
+
+        repo = self.config["default_repo"]
+        if not repo:
+            await utils.answer(message, self.strings["no_default_repo"])
+            return
+
+        self._push_state[message.id] = {
+            "chat_id": message.chat_id,
+            "reply_id": reply.id,
+            "repo": repo,
+        }
+
+        await self.inline.form(
+            text=(
+                f"{GH_EMOJI} <b>📤 Push</b>\n\n"
+                f"Репозиторий: <code>{html.escape(repo)}</code>\n"
+                f"Файл: <code>{html.escape(reply.file.name or 'file')}</code>\n\n"
+                "Выбери действие:"
+            ),
+            message=message,
+            reply_markup=[
+                [{
+                    "text": "📁 Путь файла",
+                    "input": "Введите путь в репозитории, например <code>modules/test.py</code>",
+                    "handler": self._push_path_input,
+                    "args": (message.id,),
+                }],
+                [{"text": "❌ Отмена", "action": "close"}],
+            ],
+        )
+
+    async def _push_path_input(self, call: InlineCall, value: str, state_id: int):
+        value = value.strip().lstrip("/")
+        if not value or value.endswith("/"):
+            await call.answer("Укажи корректный путь к файлу.", show_alert=True)
+            return
+
+        state = self._push_state.get(state_id)
+        if not state:
+            await call.answer("Сессия push устарела.", show_alert=True)
+            return
+
+        state["path"] = value
+        await call.edit(
+            self.strings["push_commit"],
+            reply_markup=[[
+                {
+                    "text": "✍️ Ввести commit message",
+                    "input": "Например: update module",
+                    "handler": self._push_commit_input,
+                    "args": (state_id,),
+                }
+            ], [{"text": "❌ Отмена", "action": "close"}]],
+        )
+
+    async def _push_commit_input(self, call: InlineCall, value: str, state_id: int):
+        value = value.strip()
+        if not value:
+            await call.answer("Commit message не может быть пустым.", show_alert=True)
+            return
+
+        state = self._push_state.get(state_id)
+        if not state:
+            await call.answer("Сессия push устарела.", show_alert=True)
+            return
+
+        state["commit"] = value
+        await call.edit(
+            f"{GH_EMOJI} <i>Загружаю файл и выполняю GitHub push...</i>",
+        )
+        try:
+            msg = await self._client.get_messages(state["chat_id"], ids=state["reply_id"])
+            if not msg or not getattr(msg, "file", None):
+                raise RuntimeError("Исходный Telegram-файл больше недоступен.")
+
+            data = await msg.download_media(bytes)
+            if not data:
+                raise RuntimeError("Не удалось скачать Telegram-файл.")
+
+            encoded = base64.b64encode(data).decode()
+            repo = state["repo"]
+            path = state["path"]
+
+            existing_sha = None
+            try:
+                existing = await self._api("GET", f"/repos/{repo}/contents/{path}")
+                if existing.get("type") == "file":
+                    existing_sha = existing.get("sha")
+            except Exception:
+                pass
+
+            payload = {
+                "message": state["commit"],
+                "content": encoded,
+            }
+            if existing_sha:
+                payload["sha"] = existing_sha
+
+            result = await self._api("PUT", f"/repos/{repo}/contents/{path}", json=payload)
+            url = result.get("content", {}).get("html_url") or result.get("commit", {}).get("html_url") or "готово"
+
+            await call.edit(
+                self.strings["push_done"].format(html.escape(url)),
+                reply_markup=[
+                    [{"text": "🌐 Открыть", "url": url}],
+                    [{"text": "⬅️ Репозиторий", "callback": self._repo_view, "args": (repo,)}],
+                ],
+            )
+        except Exception as e:
+            await call.edit(
+                self.strings["push_error"].format(html.escape(str(e))),
+                reply_markup=self._back_markup(state.get("repo")),
+            )
+        finally:
+            self._push_state.pop(state_id, None)
+
+    @loader.command(ru_doc="owner/repo; заголовок; текст - создать issue")
+    async def sgitissue(self, message: Message):
+        """owner/repo; title; body - create a github issue"""
+        if not self.config["github_token"]:
+            await utils.answer(message, self.strings["no_token"])
+            return
+
+        args = utils.get_args_raw(message)
+        if not args or args.count(";") < 2:
+            await utils.answer(message, self.strings["issue_usage"])
+            return
+
+        repo_part, title, body = [p.strip() for p in args.split(";", maxsplit=2)]
+        full_name = repo_part or self.config["default_repo"]
+        if not full_name:
+            await utils.answer(message, self.strings["no_default_repo"])
+            return
+
+        try:
+            issue = await self._api(
+                "POST", f"/repos/{full_name}/issues",
+                json={"title": title, "body": body},
+            )
+        except Exception as e:
+            await utils.answer(message, self.strings["api_error"].format(html.escape(str(e))))
+            return
+
+        await utils.answer(message, self.strings["issue_created"].format(issue["html_url"]))
