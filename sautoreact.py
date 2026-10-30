@@ -51,6 +51,9 @@ class sAutoReactMod(loader.Module):
         ),
         "user_not_found": "<emoji document_id=5985346521103604145>🚫</emoji> <b>У этого юзера нет авто-реакций</b>",
         "user_removed": "<emoji document_id=5879896690210639947>🗑</emoji> <b>Авто-реакции на</b> {} <b>убраны</b>",
+        "triggers_cleared": "<emoji document_id=5879896690210639947>🗑</emoji> <b>Все авто-реакции по триггерам убраны</b>",
+        "users_cleared": "<emoji document_id=5879896690210639947>🗑</emoji> <b>Все авто-реакции на юзеров убраны</b>",
+        "nothing_to_clear": "<emoji document_id=5985346521103604145>🚫</emoji> <b>Очищать нечего</b>",
     }
 
     strings_ru = strings
@@ -274,6 +277,28 @@ class sAutoReactMod(loader.Module):
         self._save_users()
         await utils.answer(message, self.strings["user_removed"].format(display))
 
+    @loader.command(ru_doc="убрать все авто-реакции по триггерам")
+    async def sarclear(self, message: Message):
+        """remove all trigger auto reactions"""
+        if not self._triggers:
+            await utils.answer(message, self.strings["nothing_to_clear"])
+            return
+
+        self._triggers.clear()
+        self._save()
+        await utils.answer(message, self.strings["triggers_cleared"])
+
+    @loader.command(ru_doc="убрать все авто-реакции с юзеров")
+    async def saruclear(self, message: Message):
+        """remove all user auto reactions"""
+        if not self._users:
+            await utils.answer(message, self.strings["nothing_to_clear"])
+            return
+
+        self._users.clear()
+        self._save_users()
+        await utils.answer(message, self.strings["users_cleared"])
+
     @loader.command(ru_doc="список всех триггеров и юзеров с авто-реакциями")
     async def sarlist(self, message: Message):
         """list of triggers and users with auto reactions"""
@@ -330,4 +355,14 @@ class sAutoReactMod(loader.Module):
                 )
             )
         except Exception:
-            pass
+            if len(collected) > 1:
+                try:
+                    await self._client(
+                        SendReactionRequest(
+                            peer=message.peer_id,
+                            msg_id=message.id,
+                            reaction=self._build_reactions(collected[:1]),
+                        )
+                    )
+                except Exception:
+                    pass
